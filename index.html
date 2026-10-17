@@ -176,7 +176,6 @@
     let userLon = 8.5772;
     let audioEnabled = false;
     let knownFlights = new Set();
-    let scanTimer = null;
     let countdownSec = 10;
     const MAX_DISTANCE_KM = 50;
 
@@ -192,7 +191,6 @@
       "NW": "Richtung Stutensee / Philippsburg"
     };
 
-    // Audio-Synthesizer für den Warnton (Web Audio API)
     function playAlertTone() {
       if (!audioEnabled) return;
       try {
@@ -200,7 +198,7 @@
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         osc.type = "sawtooth";
-        osc.frequency.setValueAtTime(880, audioCtx.currentTime); // A5
+        osc.frequency.setValueAtTime(880, audioCtx.currentTime);
         osc.frequency.setValueAtTime(1200, audioCtx.currentTime + 0.15);
         gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.35);
@@ -219,14 +217,13 @@
       if (audioEnabled) {
         btn.classList.add("active");
         btn.innerText = "Audio-Alarm: AN";
-        playAlertTone(); // Testton
+        playAlertTone();
       } else {
         btn.classList.remove("active");
         btn.innerText = "Audio-Alarm: AUS";
       }
     }
 
-    // Geodätische Distanz (Haversine-Formel) in Kilometern
     function calculateDistance(lat1, lon1, lat2, lon2) {
       const R = 6371;
       const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -239,7 +236,6 @@
       return R * c;
     }
 
-    // Peilung / Bearing berechnen (0° bis 360°)
     function calculateBearing(lat1, lon1, lat2, lon2) {
       const φ1 = lat1 * Math.PI / 180;
       const φ2 = lat2 * Math.PI / 180;
@@ -257,7 +253,6 @@
       return directions[index];
     }
 
-    // Positionsermittlung
     function initGPS() {
       if ("geolocation" in navigator) {
         navigator.geolocation.getCurrentPosition(
@@ -268,7 +263,7 @@
             fetchMilitaryFlights();
           },
           (err) => {
-            console.warn("GPS nicht verfügbar, nutze Remchingen:", err);
+            console.warn("GPS-Fehler, nutze Remchingen:", err);
             document.getElementById("posDisplay").innerText = "Standort: Remchingen (Standard)";
             fetchMilitaryFlights();
           },
@@ -278,131 +273,3 @@
         document.getElementById("posDisplay").innerText = "Standort: Remchingen (Standard)";
         fetchMilitaryFlights();
       }
-    }
-
-    // Abfrage der offenen Airplanes.live Militär-API
-    async function fetchMilitaryFlights() {
-      const badge = document.getElementById("statusBadge");
-      badge.classList.add("scanning");
-      badge.innerText = "Aktualisiere...";
-
-      try {
-        const response = await fetch("https://api.airplanes.live/v2/mil");
-        if (!response.ok) throw new Error("HTTP " + response.status);
-        const data = await response.json();
-        
-        processFlights(data.ac || []);
-        badge.classList.remove("scanning");
-        badge.innerText = "Online";
-      } catch (err) {
-        console.error("API-Fehler:", err);
-        badge.classList.remove("scanning");
-        badge.innerText = "API-Fehler (Neuversuch)";
-      }
-    }
-
-    function processFlights(aircraftList) {
-      const nearby = [];
-      let newAlert = false;
-
-      aircraftList.forEach(ac => {
-        if (!ac.lat || !ac.lon) return;
-
-        const dist = calculateDistance(userLat, userLon, ac.lat, ac.lon);
-        if (dist <= MAX_DISTANCE_KM) {
-          const bearing = calculateBearing(userLat, userLon, ac.lat, ac.lon);
-          const sector = getCompassSector(bearing);
-          const landmark = sectorLandmarks[sector] || "";
-
-          const id = ac.hex || ac.flight || `${ac.lat}-${ac.lon}`;
-          if (!knownFlights.has(id)) {
-            knownFlights.add(id);
-            newAlert = true;
-          }
-
-          nearby.push({
-            hex: ac.hex,
-            callsign: (ac.flight || ac.r || ac.hex || "UNKNOWN").trim(),
-            type: ac.t || "Militärflieger",
-            desc: ac.desc || "",
-            dist: dist,
-            bearing: Math.round(bearing),
-            sector: sector,
-            landmark: landmark,
-            alt: ac.alt_geom || ac.alt_baro || 0,
-            speed: ac.gs || 0,
-            track: ac.track || 0
-          });
-        }
-      });
-
-      if (newAlert && nearby.length > 0) {
-        playAlertTone();
-      }
-
-      renderList(nearby);
-    }
-
-    function renderList(flights) {
-      const listEl = document.getElementById("flightList");
-      if (flights.length === 0) {
-        listEl.innerHTML = `
-          <div class="empty-state">
-            <div style="font-size: 2rem; margin-bottom: 8px;">🛡️</div>
-            Aktuell keine Militärflieger im 50-km-Radius registriert.
-          </div>
-        `;
-        return;
-      }
-
-      flights.sort((a, b) => a.dist - b.dist);
-
-      let html = "";
-      flights.forEach(f => {
-        const altMeters = Math.round(f.alt * 0.3048);
-        const speedKmh = Math.round(f.speed * 1.852);
-
-        html += `
-          <div class="flight-card">
-            <div class="flight-head">
-              <div>
-                <span class="callsign">${f.callsign}</span>
-                <span class="type-badge">${f.type}</span>
-              </div>
-              <span class="distance-tag">${f.dist.toFixed(1)} km</span>
-            </div>
-
-            <div class="bearing-box">
-              <span class="bearing-arrow" style="transform: rotate(${f.bearing}deg);">↑</span>
-              <div class="bearing-text">
-                Blickrichtung: <strong>${f.sector} (${f.bearing}°)</strong><br>
-                <span class="bearing-target">👉 Schau ${f.landmark}</span>
-              </div>
-            </div>
-
-            <div class="flight-stats">
-              <span>Höhe<strong>${altMeters} m (${f.alt} ft)</strong></span>
-              <span>Speed<strong>${speedKmh} km/h</strong></span>
-              <span>Kurs<strong>${Math.round(f.track)}°</strong></span>
-            </div>
-          </div>
-        `;
-      });
-      listEl.innerHTML = html;
-    }
-
-    // Auto-Refresh Intervall (10s)
-    setInterval(() => {
-      countdownSec--;
-      if (countdownSec <= 0) {
-        fetchMilitaryFlights();
-        countdownSec = 10;
-      }
-      document.getElementById("countdown").innerText = `Nächster Scan: ${countdownSec}s`;
-    }, 1000);
-
-    // Initialer Start
-    initGPS();
-  </script>
-</body>
-</html>

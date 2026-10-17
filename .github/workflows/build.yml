@@ -21,10 +21,7 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: Android SDK einrichten
-        uses: android-actions/setup-android@v3
-
-      - name: Web-Dateien in Unterordner verschieben
+      - name: Web-Dateien vorbereiten
         run: |
           mkdir -p www
           cp index.html www/
@@ -32,7 +29,7 @@ jobs:
       - name: App-Hülle erstellen (Capacitor)
         run: |
           npm init -y
-          npm install @capacitor/core@latest @capacitor/cli@latest @capacitor/android@latest
+          npm install @capacitor/core @capacitor/cli @capacitor/android
           npx cap init "Mil-Air Alert" "com.charly.milradar" --web-dir www
           npx cap add android
 

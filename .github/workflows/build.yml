@@ -1,7 +1,7 @@
 name: Build Android APK
 
 on:
-  workflow_dispatch: # Erlaubt dir, den Bau manuell per Knopfdruck zu starten
+  workflow_dispatch:
 
 jobs:
   build:
@@ -13,22 +13,27 @@ jobs:
       - name: Node.js einrichten
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20
 
       - name: Java einrichten
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
-          distribution: 'zulu'
-          java-version: '17'
+          distribution: 'temurin'
+          java-version: '21'
 
       - name: Android SDK einrichten
         uses: android-actions/setup-android@v3
 
+      - name: Web-Dateien in Unterordner verschieben
+        run: |
+          mkdir -p www
+          cp index.html www/
+
       - name: App-Hülle erstellen (Capacitor)
         run: |
           npm init -y
-          npm install @capacitor/core @capacitor/cli @capacitor/android
-          npx cap init "Mil-Air Alert" "com.charly.milradar" --web-dir .
+          npm install @capacitor/core@latest @capacitor/cli@latest @capacitor/android@latest
+          npx cap init "Mil-Air Alert" "com.charly.milradar" --web-dir www
           npx cap add android
 
       - name: Berechtigungen & Hintergrunddienst eintragen

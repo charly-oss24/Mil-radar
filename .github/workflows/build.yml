@@ -33,9 +33,14 @@ jobs:
           npx cap init "Mil-Air Alert" "com.charly.milradar" --web-dir www
           npx cap add android
 
-      - name: Berechtigungen & Hintergrunddienst eintragen
+      - name: Berechtigungen & Doppel-Klassen-Fix eintragen
         run: |
+          # Berechtigungen ins Manifest eintragen
           sed -i '/<application/i <uses-permission android:name="android.permission.INTERNET" />\n<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />\n<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />' android/app/src/main/AndroidManifest.xml
+          
+          # Duplicate-Class-Konflikt in build.gradle beheben
+          echo 'configurations.all { exclude group: "org.jetbrains.kotlin", module: "kotlin-stdlib-jdk7"; exclude group: "org.jetbrains.kotlin", module: "kotlin-stdlib-jdk8" }' >> android/app/build.gradle
+          
           npx cap sync android
 
       - name: APK bauen

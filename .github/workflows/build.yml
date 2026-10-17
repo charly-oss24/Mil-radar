@@ -26,17 +26,17 @@ jobs:
           mkdir -p www
           cp index.html www/
 
-      - name: App-Hülle erstellen (Capacitor)
+      - name: App-Hülle & Push-Plugin erstellen (Capacitor)
         run: |
           npm init -y
-          npm install @capacitor/core @capacitor/cli @capacitor/android
+          npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/local-notifications
           npx cap init "Mil-Air Alert" "com.charly.milradar" --web-dir www
           npx cap add android
 
       - name: Berechtigungen & Doppel-Klassen-Fix eintragen
         run: |
-          # Berechtigungen ins Manifest eintragen
-          sed -i '/<application/i <uses-permission android:name="android.permission.INTERNET" />\n<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />\n<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />' android/app/src/main/AndroidManifest.xml
+          # Berechtigungen ins AndroidManifest eintragen (inkl. Vibration & Push)
+          sed -i '/<application/i <uses-permission android:name="android.permission.INTERNET" />\n<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />\n<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n<uses-permission android:name="android.permission.VIBRATE" />' android/app/src/main/AndroidManifest.xml
           
           # Duplicate-Class-Konflikt in build.gradle beheben
           echo 'configurations.all { exclude group: "org.jetbrains.kotlin", module: "kotlin-stdlib-jdk7"; exclude group: "org.jetbrains.kotlin", module: "kotlin-stdlib-jdk8" }' >> android/app/build.gradle

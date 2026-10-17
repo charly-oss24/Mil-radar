@@ -235,10 +235,42 @@
       "NW": "Richtung Stutensee / Philippsburg"
     };
 
+    // Push-Berechtigungen über Capacitor anfordern
+    async function initPushNotifications() {
+      try {
+        if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.LocalNotifications) {
+          const perm = await window.Capacitor.Plugins.LocalNotifications.requestPermissions();
+          console.log("Notification Permission:", perm);
+        }
+      } catch (e) {
+        console.warn("LocalNotifications Init Error:", e);
+      }
+    }
+
+    // Native Push-Mitteilung an Android abschicken
+    async function sendPushAlert(flight) {
+      try {
+        if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.LocalNotifications) {
+          await window.Capacitor.Plugins.LocalNotifications.schedule({
+            notifications: [
+              {
+                title: `🚨 ${flight.info.label}: ${flight.callsign}`,
+                body: `${flight.dist.toFixed(1)} km entfernt | ${flight.sector} (${flight.landmark})`,
+                id: Math.floor(Math.random() * 100000),
+                schedule: { at: new Date(Date.now() + 100) },
+                sound: null
+              }
+            ]
+          });
+        }
+      } catch (e) {
+        console.warn("Fehler beim Senden der Notification:", e);
+      }
+    }
+
     function initMap() {
       map = L.map('map', { attributionControl: false }).setView([userLat, userLon], 9);
       
-      // Freie OpenStreetMap-Kacheln ohne Key
       L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 18
       }).addTo(map);
@@ -436,6 +468,7 @@
     function processFlights(aircraftList) {
       const nearby = [];
       let newAlert = false;
+      const newFlightsToNotify = [];
 
       aircraftList.forEach(ac => {
         if (!ac.lat || !ac.lon) return;
@@ -449,12 +482,7 @@
           const type = ac.t || "MIL";
           const info = classifyAircraft(type);
 
-          if (!knownFlights.has(id)) {
-            knownFlights.add(id);
-            newAlert = true;
-          }
-
-          nearby.push({
+          const flightObj = {
             id: id,
             hex: ac.hex,
             lat: ac.lat,
@@ -469,12 +497,22 @@
             alt: ac.alt_geom || ac.alt_baro || 0,
             speed: ac.gs || 0,
             track: ac.track || 0
-          });
+          };
+
+          if (!knownFlights.has(id)) {
+            knownFlights.add(id);
+            newAlert = true;
+            newFlightsToNotify.push(flightObj);
+          }
+
+          nearby.push(flightObj);
         }
       });
 
       if (newAlert && nearby.length > 0) {
         playAlertTone();
+        // Sende für jede neu aufgetauchte Maschine einen Push-Alarm
+        newFlightsToNotify.forEach(f => sendPushAlert(f));
       }
 
       updateMapMarkers(nearby);
@@ -542,6 +580,7 @@
       document.getElementById("countdown").innerText = `Nächster Scan: ${countdownSec}s`;
     }, 1000);
 
+    initPushNotifications();
     initMap();
     initGPS();
   </script>

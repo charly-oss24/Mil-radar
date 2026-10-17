@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Mil-Air Radar 50km</title>
   
-  <!-- Leaflet Karten-Bibliothek (kostenlos & ohne API-Key) -->
+  <!-- Leaflet Karten-Bibliothek -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
@@ -56,7 +56,7 @@
       border-radius: 10px;
       border: 1px solid var(--border);
       margin-bottom: 12px;
-      background: #0d1117;
+      background: #111;
     }
 
     .controls {
@@ -173,7 +173,6 @@
       font-size: 0.9rem;
     }
 
-    /* Flugzeug-Marker auf der Karte */
     .plane-marker {
       font-size: 18px;
       text-align: center;
@@ -222,7 +221,6 @@
     let radiusCircle = null;
     let planeMarkers = {};
 
-    // Typen-Kategorisierung (ICAO-Codes)
     const FIGHTER_JETS = ["EF20", "TOR", "F16", "F35", "FA18", "EUFI", "A10", "F15", "M2000", "RAF"];
     const HELICOPTERS = ["H145", "EC45", "TIGR", "NH90", "CH53", "H60", "AH64", "EC35", "AS32"];
 
@@ -240,26 +238,25 @@
     function initMap() {
       map = L.map('map', { attributionControl: false }).setView([userLat, userLon], 9);
       
-      // Dunkles Kartendesign (CartoDB DarkMatter)
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      // Freie OpenStreetMap-Kacheln ohne Key
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 18
       }).addTo(map);
 
-      // Eigener Standort-Marker
       const homeIcon = L.divIcon({
         className: 'home-marker',
-        html: '<div style="background:#58a6ff; width:12px; height:12px; border-radius:50%; border:2px solid #fff; box-shadow:0 0 8px #58a6ff;"></div>',
-        iconSize: [12, 12]
+        html: '<div style="background:#58a6ff; width:14px; height:14px; border-radius:50%; border:2px solid #fff; box-shadow:0 0 10px #58a6ff;"></div>',
+        iconSize: [14, 14],
+        iconAnchor: [7, 7]
       });
       userMarker = L.marker([userLat, userLon], { icon: homeIcon }).addTo(map).bindPopup("Dein Standort");
 
-      // 50-km-Radiuskreis
       radiusCircle = L.circle([userLat, userLon], {
-        color: '#58a6ff',
+        color: '#1f6feb',
         fillColor: '#58a6ff',
-        fillOpacity: 0.05,
-        weight: 1.5,
-        dashArray: '4, 6',
+        fillOpacity: 0.1,
+        weight: 2,
+        dashArray: '5, 8',
         radius: MAX_DISTANCE_KM * 1000
       }).addTo(map);
     }
@@ -428,7 +425,6 @@
         }
       });
 
-      // Entfernte Flieger von der Karte löschen
       Object.keys(planeMarkers).forEach(id => {
         if (!currentIds.has(id)) {
           map.removeLayer(planeMarkers[id]);
@@ -497,7 +493,6 @@
         return;
       }
 
-      // Fighter Jets zuerst sortieren, dann nach Nähe
       flights.sort((a, b) => {
         if (a.info.cat === "JET" && b.info.cat !== "JET") return -1;
         if (b.info.cat === "JET" && a.info.cat !== "JET") return 1;
@@ -547,7 +542,6 @@
       document.getElementById("countdown").innerText = `Nächster Scan: ${countdownSec}s`;
     }, 1000);
 
-    // Initialisierung
     initMap();
     initGPS();
   </script>

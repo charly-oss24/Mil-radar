@@ -4,6 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Mil-Air Radar 50km</title>
+  
+  <!-- Leaflet Karten-Bibliothek (kostenlos & ohne API-Key) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
   <style>
     :root {
       --bg: #0d1117;
@@ -11,6 +16,8 @@
       --border: #30363d;
       --accent: #238636;
       --alert: #f85149;
+      --jet: #d29922;
+      --heli: #a371f7;
       --text: #c9d1d9;
       --text-bright: #ffffff;
       --bearing: #58a6ff;
@@ -21,7 +28,7 @@
       color: var(--text);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
       padding: 12px;
-      padding-bottom: 40px;
+      padding-bottom: 50px;
     }
     header {
       display: flex;
@@ -42,6 +49,16 @@
       border: 1px solid var(--border);
     }
     .status-badge.scanning { color: #58a6ff; border-color: #58a6ff; }
+    
+    #map {
+      width: 100%;
+      height: 280px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      margin-bottom: 12px;
+      background: #0d1117;
+    }
+
     .controls {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -78,6 +95,12 @@
       padding: 12px;
       margin-bottom: 10px;
     }
+    .flight-card.is-jet {
+      border-left: 4px solid var(--jet);
+    }
+    .flight-card.is-heli {
+      border-left: 4px solid var(--heli);
+    }
     .flight-head {
       display: flex;
       justify-content: space-between;
@@ -90,13 +113,18 @@
       color: var(--text-bright);
       letter-spacing: 0.5px;
     }
-    .type-badge {
-      background: #30363d;
-      color: #f0f6fc;
-      font-size: 0.75rem;
+    .badge-category {
+      font-size: 0.7rem;
+      font-weight: bold;
       padding: 2px 6px;
       border-radius: 4px;
+      margin-left: 4px;
+      text-transform: uppercase;
     }
+    .badge-jet { background: rgba(210, 153, 34, 0.25); color: #e3b341; border: 1px solid #d29922; }
+    .badge-heli { background: rgba(163, 113, 247, 0.25); color: #d2a8ff; border: 1px solid #a371f7; }
+    .badge-mil { background: #30363d; color: #f0f6fc; }
+
     .distance-tag {
       color: var(--alert);
       font-weight: bold;
@@ -140,9 +168,17 @@
     }
     .empty-state {
       text-align: center;
-      padding: 40px 16px;
+      padding: 30px 16px;
       color: #8b949e;
       font-size: 0.9rem;
+    }
+
+    /* Flugzeug-Marker auf der Karte */
+    .plane-marker {
+      font-size: 18px;
+      text-align: center;
+      line-height: 20px;
+      transition: transform 0.5s linear;
     }
   </style>
 </head>
@@ -155,6 +191,9 @@
     </div>
     <div id="statusBadge" class="status-badge">Standort wird ermittelt...</div>
   </header>
+
+  <!-- Live Karte -->
+  <div id="map"></div>
 
   <div class="controls">
     <button id="toggleAudioBtn" onclick="toggleAudio()">Audio-Alarm: AUS</button>
@@ -178,6 +217,15 @@
     let countdownSec = 10;
     const MAX_DISTANCE_KM = 50;
 
+    let map = null;
+    let userMarker = null;
+    let radiusCircle = null;
+    let planeMarkers = {};
+
+    // Typen-Kategorisierung (ICAO-Codes)
+    const FIGHTER_JETS = ["EF20", "TOR", "F16", "F35", "FA18", "EUFI", "A10", "F15", "M2000", "RAF"];
+    const HELICOPTERS = ["H145", "EC45", "TIGR", "NH90", "CH53", "H60", "AH64", "EC35", "AS32"];
+
     const sectorLandmarks = {
       "N": "Richtung Bretten / Bruchsal",
       "NO": "Richtung Maulbronn / Heilbronn",
@@ -188,6 +236,52 @@
       "W": "Richtung Karlsbad / Karlsruhe",
       "NW": "Richtung Stutensee / Philippsburg"
     };
+
+    function initMap() {
+      map = L.map('map', { attributionControl: false }).setView([userLat, userLon], 9);
+      
+      // Dunkles Kartendesign (CartoDB DarkMatter)
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        maxZoom: 18
+      }).addTo(map);
+
+      // Eigener Standort-Marker
+      const homeIcon = L.divIcon({
+        className: 'home-marker',
+        html: '<div style="background:#58a6ff; width:12px; height:12px; border-radius:50%; border:2px solid #fff; box-shadow:0 0 8px #58a6ff;"></div>',
+        iconSize: [12, 12]
+      });
+      userMarker = L.marker([userLat, userLon], { icon: homeIcon }).addTo(map).bindPopup("Dein Standort");
+
+      // 50-km-Radiuskreis
+      radiusCircle = L.circle([userLat, userLon], {
+        color: '#58a6ff',
+        fillColor: '#58a6ff',
+        fillOpacity: 0.05,
+        weight: 1.5,
+        dashArray: '4, 6',
+        radius: MAX_DISTANCE_KM * 1000
+      }).addTo(map);
+    }
+
+    function updateMapLocation() {
+      if (!map) return;
+      userMarker.setLatLng([userLat, userLon]);
+      radiusCircle.setLatLng([userLat, userLon]);
+      map.setView([userLat, userLon], 9);
+    }
+
+    function classifyAircraft(type) {
+      if (!type) return { cat: "MIL", label: "Militär", class: "badge-mil", cardClass: "" };
+      const t = type.toUpperCase().trim();
+      if (FIGHTER_JETS.some(j => t.includes(j))) {
+        return { cat: "JET", label: "⚡ Jet", class: "badge-jet", cardClass: "is-jet" };
+      }
+      if (HELICOPTERS.some(h => t.includes(h))) {
+        return { cat: "HELI", label: "🚁 Heli", class: "badge-heli", cardClass: "is-heli" };
+      }
+      return { cat: "MIL", label: t, class: "badge-mil", cardClass: "" };
+    }
 
     function playAlertTone() {
       if (!audioEnabled) return;
@@ -258,6 +352,7 @@
             userLat = pos.coords.latitude;
             userLon = pos.coords.longitude;
             document.getElementById("posDisplay").innerText = `Standort: ${userLat.toFixed(3)}N, ${userLon.toFixed(3)}E`;
+            updateMapLocation();
             fetchMilitaryFlights();
           },
           (err) => {
@@ -289,7 +384,6 @@
         badge.classList.remove("scanning");
         badge.innerText = `Online (${milFleet.length} Flieger)`;
       } catch (err) {
-        console.warn("Airplanes.live API fehlgeschlagen, nutze adsb.lol...", err);
         try {
           const backupRes = await fetch("https://api.adsb.lol/v2/mil");
           if (!backupRes.ok) throw new Error("Backup Status: " + backupRes.status);
@@ -306,6 +400,43 @@
       }
     }
 
+    function updateMapMarkers(flights) {
+      const currentIds = new Set();
+
+      flights.forEach(f => {
+        currentIds.add(f.id);
+        const symbol = f.info.cat === "JET" ? "⚡" : (f.info.cat === "HELI" ? "🚁" : "✈️");
+        const heading = f.track || 0;
+
+        const iconHtml = `
+          <div class="plane-marker" style="transform: rotate(${heading}deg);">${symbol}</div>
+        `;
+        const icon = L.divIcon({
+          className: 'plane-div-icon',
+          html: iconHtml,
+          iconSize: [20, 20],
+          iconAnchor: [10, 10]
+        });
+
+        if (planeMarkers[f.id]) {
+          planeMarkers[f.id].setLatLng([f.lat, f.lon]);
+          planeMarkers[f.id].setIcon(icon);
+        } else {
+          const marker = L.marker([f.lat, f.lon], { icon: icon }).addTo(map);
+          marker.bindPopup(`<b>${f.callsign}</b><br>${f.type}<br>Distanz: ${f.dist.toFixed(1)} km`);
+          planeMarkers[f.id] = marker;
+        }
+      });
+
+      // Entfernte Flieger von der Karte löschen
+      Object.keys(planeMarkers).forEach(id => {
+        if (!currentIds.has(id)) {
+          map.removeLayer(planeMarkers[id]);
+          delete planeMarkers[id];
+        }
+      });
+    }
+
     function processFlights(aircraftList) {
       const nearby = [];
       let newAlert = false;
@@ -318,18 +449,23 @@
           const bearing = calculateBearing(userLat, userLon, ac.lat, ac.lon);
           const sector = getCompassSector(bearing);
           const landmark = sectorLandmarks[sector] || "";
-
           const id = ac.hex || ac.flight || `${ac.lat}-${ac.lon}`;
+          const type = ac.t || "MIL";
+          const info = classifyAircraft(type);
+
           if (!knownFlights.has(id)) {
             knownFlights.add(id);
             newAlert = true;
           }
 
           nearby.push({
+            id: id,
             hex: ac.hex,
+            lat: ac.lat,
+            lon: ac.lon,
             callsign: (ac.flight || ac.r || ac.hex || "UNKNOWN").trim(),
-            type: ac.t || "Militärflieger",
-            desc: ac.desc || "",
+            type: type,
+            info: info,
             dist: dist,
             bearing: Math.round(bearing),
             sector: sector,
@@ -345,6 +481,7 @@
         playAlertTone();
       }
 
+      updateMapMarkers(nearby);
       renderList(nearby);
     }
 
@@ -360,7 +497,12 @@
         return;
       }
 
-      flights.sort((a, b) => a.dist - b.dist);
+      // Fighter Jets zuerst sortieren, dann nach Nähe
+      flights.sort((a, b) => {
+        if (a.info.cat === "JET" && b.info.cat !== "JET") return -1;
+        if (b.info.cat === "JET" && a.info.cat !== "JET") return 1;
+        return a.dist - b.dist;
+      });
 
       let html = "";
       flights.forEach(f => {
@@ -368,11 +510,11 @@
         const speedKmh = Math.round(f.speed * 1.852);
 
         html += `
-          <div class="flight-card">
+          <div class="flight-card ${f.info.cardClass}">
             <div class="flight-head">
               <div>
                 <span class="callsign">${f.callsign}</span>
-                <span class="type-badge">${f.type}</span>
+                <span class="badge-category ${f.info.class}">${f.info.label}</span>
               </div>
               <span class="distance-tag">${f.dist.toFixed(1)} km</span>
             </div>
@@ -386,9 +528,9 @@
             </div>
 
             <div class="flight-stats">
-              <span>Höhe<strong>${altMeters} m (${f.alt} ft)</strong></span>
+              <span>Typ<strong>${f.type}</strong></span>
+              <span>Höhe<strong>${altMeters} m</strong></span>
               <span>Speed<strong>${speedKmh} km/h</strong></span>
-              <span>Kurs<strong>${Math.round(f.track)}°</strong></span>
             </div>
           </div>
         `;
@@ -405,6 +547,8 @@
       document.getElementById("countdown").innerText = `Nächster Scan: ${countdownSec}s`;
     }, 1000);
 
+    // Initialisierung
+    initMap();
     initGPS();
   </script>
 </body>

@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Mil-Air Radar 50km</title>
   
-  <!-- Leaflet Karten-Bibliothek -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
@@ -95,12 +94,8 @@
       padding: 12px;
       margin-bottom: 10px;
     }
-    .flight-card.is-jet {
-      border-left: 4px solid var(--jet);
-    }
-    .flight-card.is-heli {
-      border-left: 4px solid var(--heli);
-    }
+    .flight-card.is-jet { border-left: 4px solid var(--jet); }
+    .flight-card.is-heli { border-left: 4px solid var(--heli); }
     .flight-head {
       display: flex;
       justify-content: space-between;
@@ -172,7 +167,6 @@
       color: #8b949e;
       font-size: 0.9rem;
     }
-
     .plane-marker {
       font-size: 18px;
       text-align: center;
@@ -191,7 +185,6 @@
     <div id="statusBadge" class="status-badge">Standort wird ermittelt...</div>
   </header>
 
-  <!-- Live Karte -->
   <div id="map"></div>
 
   <div class="controls">
@@ -235,18 +228,16 @@
       "NW": "Richtung Stutensee / Philippsburg"
     };
 
-    // Push-Berechtigungen anfordern
     async function initPushNotifications() {
       try {
         if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.LocalNotifications) {
           await window.Capacitor.Plugins.LocalNotifications.requestPermissions();
         }
       } catch (e) {
-        console.warn("Push-Initialisierung:", e);
+        console.warn("Push-Init:", e);
       }
     }
 
-    // Push-Mitteilung an Android senden
     async function sendPushAlert(flight) {
       try {
         if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.LocalNotifications) {
@@ -263,7 +254,7 @@
           });
         }
       } catch (e) {
-        console.warn("Fehler beim Senden der Benachrichtigung:", e);
+        console.warn("Push Fehler:", e);
       }
     }
 
@@ -396,7 +387,6 @@
       }
     }
 
-    // Nativer Datenabruf via CapacitorHttp mit Fallback
     async function fetchMilitaryFlights() {
       const badge = document.getElementById("statusBadge");
       badge.classList.add("scanning");
@@ -412,22 +402,16 @@
 
       for (const url of targetUrls) {
         try {
-          if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.CapacitorHttp) {
-            const res = await window.Capacitor.Plugins.CapacitorHttp.get({ url: url });
-            if (res.status === 200 && res.data) {
-              data = typeof res.data === "string" ? JSON.parse(res.data) : res.data;
-              break;
-            }
+          const res = await fetch(url);
+          if (res.ok) {
+            data = await res.json();
+            break;
           } else {
-            const response = await fetch(url);
-            if (response.ok) {
-              data = await response.json();
-              break;
-            }
+            lastError = `Status ${res.status}`;
           }
         } catch (err) {
-          console.warn("Verbindungsfehler bei", url, err);
-          lastError = err.message || "Netzwerkfehler";
+          console.warn("Netzwerkfehler:", url, err);
+          lastError = err.message || "Netzwerk";
         }
       }
 
@@ -437,7 +421,7 @@
         badge.innerText = `Online (${data.ac.length} Flieger)`;
       } else {
         badge.classList.remove("scanning");
-        badge.innerText = `Fehler: ${lastError || "Keine Daten"}`;
+        badge.innerText = `Fehler: ${lastError || "Offline"}`;
       }
     }
 
@@ -449,9 +433,7 @@
         const symbol = f.info.cat === "JET" ? "⚡" : (f.info.cat === "HELI" ? "🚁" : "✈️");
         const heading = f.track || 0;
 
-        const iconHtml = `
-          <div class="plane-marker" style="transform: rotate(${heading}deg);">${symbol}</div>
-        `;
+        const iconHtml = `<div class="plane-marker" style="transform: rotate(${heading}deg);">${symbol}</div>`;
         const icon = L.divIcon({
           className: 'plane-div-icon',
           html: iconHtml,

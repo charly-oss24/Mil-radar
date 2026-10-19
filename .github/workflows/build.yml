@@ -31,6 +31,19 @@ jobs:
           npm init -y
           npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/local-notifications
           npx cap init "Mil-Air Alert" "com.charly.milradar" --web-dir www
+          
+          # Native HTTP-Bridge für fetch() aktivieren
+          node -e '
+            const fs = require("fs");
+            const file = "capacitor.config.json";
+            let cfg = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file)) : {};
+            cfg.plugins = cfg.plugins || {};
+            cfg.plugins.CapacitorHttp = { enabled: true };
+            cfg.server = cfg.server || {};
+            cfg.server.cleartext = true;
+            fs.writeFileSync(file, JSON.stringify(cfg, null, 2));
+          '
+          
           npx cap add android
 
       - name: Berechtigungen & Netzwerk eintragen
@@ -38,7 +51,7 @@ jobs:
           # Berechtigungen ins AndroidManifest eintragen
           sed -i '/<application/i <uses-permission android:name="android.permission.INTERNET" />\n<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />\n<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n<uses-permission android:name="android.permission.VIBRATE" />' android/app/src/main/AndroidManifest.xml
           
-          # Netzwerk-Klartext erlauben
+          # CleartextTraffic erlauben
           sed -i 's/<application/<application android:usesCleartextTraffic="true"/' android/app/src/main/AndroidManifest.xml
 
           # Duplicate-Class-Konflikt in build.gradle beheben

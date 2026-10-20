@@ -235,6 +235,23 @@
       }
     }
 
+    async function registerBackgroundTask() {
+      try {
+        if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BackgroundTask) {
+          const { BackgroundTask } = window.Capacitor.Plugins;
+          document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+              BackgroundTask.beforeExit(async () => {
+                console.log("Background Task aktiv gehalten.");
+              });
+            }
+          });
+        }
+      } catch (e) {
+        console.warn("Background Task Plugin:", e);
+      }
+    }
+
     async function sendPushAlert(flight) {
       try {
         if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.LocalNotifications) {
@@ -296,7 +313,7 @@
     async function initNativeGPS() {
       try {
         if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation) {
-          const perm = await window.Capacitor.Plugins.Geolocation.requestPermissions();
+          await window.Capacitor.Plugins.Geolocation.requestPermissions();
           
           const pos = await window.Capacitor.Plugins.Geolocation.getCurrentPosition({
             enableHighAccuracy: true,
@@ -304,7 +321,6 @@
           });
           setLocation(pos.coords.latitude, pos.coords.longitude);
 
-          // Kontinuierliche Positionsaktualisierung bei Bewegung
           window.Capacitor.Plugins.Geolocation.watchPosition(
             { enableHighAccuracy: true },
             (newPos) => {
@@ -316,15 +332,14 @@
           return;
         }
       } catch (err) {
-        console.warn("Natives GPS nicht bereit, nutze Web-API Fallback:", err);
+        console.warn("Natives GPS Fallback:", err);
       }
 
-      // Web Fallback
       if ("geolocation" in navigator) {
         navigator.geolocation.getCurrentPosition(
           (pos) => setLocation(pos.coords.latitude, pos.coords.longitude),
           (err) => {
-            console.warn("GPS nicht verfügbar, Standardkoordinaten aktiv:", err);
+            console.warn("GPS Fallback aktiv:", err);
             document.getElementById("posDisplay").innerText = "Standort: Standard (Remchingen)";
           },
           { enableHighAccuracy: true, timeout: 8000 }
@@ -591,12 +606,12 @@
       document.getElementById("countdown").innerText = `Nächster Scan: ${countdownSec}s`;
     }, 1000);
 
-    // Kaltstart geordnet ausführen
     initMap();
     initPushNotifications();
+    registerBackgroundTask();
     initNativeGPS();
 
-    // 800ms warten, damit Capacitor-Plugins und Netzwerk-Bridge stabil stehen
+    // 800ms warten für saubere Bridge-Initialisierung
     setTimeout(() => {
       fetchMilitaryFlights();
     }, 800);

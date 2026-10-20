@@ -46,6 +46,7 @@
       border-radius: 12px;
       background: #21262d;
       border: 1px solid var(--border);
+      transition: all 0.2s ease;
     }
     .status-badge.scanning { color: #58a6ff; border-color: #58a6ff; }
     
@@ -178,7 +179,7 @@
       <h1>Mil-Air Alert</h1>
       <div style="font-size: 0.7rem; color: #8b949e;">Radius: 50 km (Dynamisches GPS)</div>
     </div>
-    <div id="statusBadge" class="status-badge">Initialisiere...</div>
+    <div id="statusBadge" class="status-badge">Bereit</div>
   </header>
 
   <div id="map"></div>
@@ -189,21 +190,21 @@
   </div>
 
   <div id="meta-bar">
-    <span id="posDisplay">Standort: Ermittle GPS...</span>
+    <span id="posDisplay">Standort: 48.950N, 8.582E</span>
     <span id="countdown">Nächster Scan: 10s</span>
   </div>
 
   <div id="flightList">
-    <div class="empty-state">Warte auf Positionsbestimmung...</div>
+    <div class="empty-state">Scanne Luftraum im 50-km-Umkreis...</div>
   </div>
 
   <script>
     let userLat = 48.9500;
     let userLon = 8.5772;
-    let gpsAcquired = false;
     let audioEnabled = true;
     let knownFlights = new Set();
     let countdownSec = 10;
+    let isFetching = false;
     const MAX_DISTANCE_KM = 50;
 
     let map = null;
@@ -215,14 +216,8 @@
     const HELICOPTERS = ["H145", "EC45", "TIGR", "NH90", "CH53", "H60", "AH64", "EC35", "AS32"];
 
     const compassText = {
-      "N": "Norden",
-      "NO": "Nordosten",
-      "O": "Osten",
-      "SO": "Südosten",
-      "S": "Süden",
-      "SW": "Südwesten",
-      "W": "Westen",
-      "NW": "Nordwesten"
+      "N": "Norden", "NO": "Nordosten", "O": "Osten", "SO": "Südosten",
+      "S": "Süden", "SW": "Südwesten", "W": "Westen", "NW": "Nordwesten"
     };
 
     async function initPushNotifications() {
@@ -232,23 +227,6 @@
         }
       } catch (e) {
         console.warn("Push-Init:", e);
-      }
-    }
-
-    async function registerBackgroundTask() {
-      try {
-        if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BackgroundTask) {
-          const { BackgroundTask } = window.Capacitor.Plugins;
-          document.addEventListener('visibilitychange', () => {
-            if (document.hidden) {
-              BackgroundTask.beforeExit(async () => {
-                console.log("Background Task aktiv gehalten.");
-              });
-            }
-          });
-        }
-      } catch (e) {
-        console.warn("Background Task Plugin:", e);
       }
     }
 
@@ -300,49 +278,35 @@
     function setLocation(lat, lon) {
       userLat = lat;
       userLon = lon;
-      gpsAcquired = true;
       document.getElementById("posDisplay").innerText = `Standort: ${userLat.toFixed(3)}N, ${userLon.toFixed(3)}E`;
-      
       if (userMarker && radiusCircle && map) {
         userMarker.setLatLng([userLat, userLon]);
         radiusCircle.setLatLng([userLat, userLon]);
-        map.panTo([userLat, userLon]);
       }
     }
 
     async function initNativeGPS() {
+      // 1. Natives Capacitor GPS versuchen
       try {
         if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation) {
           await window.Capacitor.Plugins.Geolocation.requestPermissions();
-          
           const pos = await window.Capacitor.Plugins.Geolocation.getCurrentPosition({
             enableHighAccuracy: true,
-            timeout: 10000
+            timeout: 5000
           });
           setLocation(pos.coords.latitude, pos.coords.longitude);
-
-          window.Capacitor.Plugins.Geolocation.watchPosition(
-            { enableHighAccuracy: true },
-            (newPos) => {
-              if (newPos && newPos.coords) {
-                setLocation(newPos.coords.latitude, newPos.coords.longitude);
-              }
-            }
-          );
           return;
         }
       } catch (err) {
-        console.warn("Natives GPS Fallback:", err);
+        console.warn("Natives GPS:", err);
       }
 
+      // 2. Standard Web Geolocation (mit striktem 3s Timeout)
       if ("geolocation" in navigator) {
         navigator.geolocation.getCurrentPosition(
           (pos) => setLocation(pos.coords.latitude, pos.coords.longitude),
-          (err) => {
-            console.warn("GPS Fallback aktiv:", err);
-            document.getElementById("posDisplay").innerText = "Standort: Standard (Remchingen)";
-          },
-          { enableHighAccuracy: true, timeout: 8000 }
+          () => console.log("Standardkoordinaten bleiben aktiv"),
+          { enableHighAccuracy: false, timeout: 3000 }
         );
       }
     }
@@ -374,9 +338,7 @@
         gain.connect(audioCtx.destination);
         osc.start();
         osc.stop(audioCtx.currentTime + 0.35);
-      } catch (e) {
-        console.error("Audio:", e);
-      }
+      } catch (e) {}
     }
 
     function toggleAudio() {
@@ -400,99 +362,93 @@
         Math.sin(dLat/2) * Math.sin(dLat/2) +
         Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
         Math.sin(dLon/2) * Math.sin(dLon/2);
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-      return R * c;
+      return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
     }
 
     function calculateBearing(lat1, lon1, lat2, lon2) {
       const φ1 = lat1 * Math.PI / 180;
       const φ2 = lat2 * Math.PI / 180;
       const Δλ = (lon2 - lon1) * Math.PI / 180;
-
       const y = Math.sin(Δλ) * Math.cos(φ2);
       const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
-      const θ = Math.atan2(y, x);
-      return (θ * 180 / Math.PI + 360) % 360;
+      return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
     }
 
     function getCompassSector(degrees) {
       const directions = ["N", "NO", "O", "SO", "S", "SW", "W", "NW"];
-      const index = Math.round(degrees / 45) % 8;
-      return directions[index];
+      return directions[Math.round(degrees / 45) % 8];
+    }
+
+    // Hilfsfunktion: Fetch mit striktem 3-Sekunden-Timeout
+    async function quickFetch(url, timeoutMs = 3000) {
+      const c = new AbortController();
+      const id = setTimeout(() => c.abort(), timeoutMs);
+      try {
+        const res = await fetch(url, { signal: c.signal });
+        clearTimeout(id);
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return await res.json();
+      } catch (e) {
+        clearTimeout(id);
+        throw e;
+      }
     }
 
     async function fetchMilitaryFlights() {
+      if (isFetching) return;
+      isFetching = true;
+
       const badge = document.getElementById("statusBadge");
       badge.classList.add("scanning");
       badge.innerText = "Aktualisiere...";
 
-      const targetUrls = [
-        "https://api.adsb.lol/v2/mil",
-        "https://api.airplanes.live/v2/mil"
-      ];
-
-      const proxyGenerators = [
-        (url) => "https://corsproxy.io/?" + encodeURIComponent(url),
-        (url) => "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(url)
-      ];
-
-      let data = null;
-      let lastError = "";
-
       const isNativeApp = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
 
-      async function fetchWithTimeout(url, options = {}, timeoutMs = 4000) {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), timeoutMs);
-        try {
-          const res = await fetch(url, { ...options, signal: controller.signal });
-          clearTimeout(timer);
-          return res;
-        } catch (e) {
-          clearTimeout(timer);
-          throw e;
-        }
-      }
+      let fleet = null;
+      let lastErr = "";
 
-      for (const rawUrl of targetUrls) {
-        // 1. Direkter Abruf (nativ in der APK)
-        try {
-          const res = await fetchWithTimeout(rawUrl);
-          if (res.ok) {
-            data = await res.json();
-            if (data && data.ac) break;
-          }
-        } catch (err) {
-          lastError = err.name === "AbortError" ? "Timeout" : (err.message || "Netzwerk");
-        }
-
-        // 2. Proxy-Abruf mit Timeout (nur im Web-Browser)
-        if (!data && !isNativeApp) {
-          for (const makeProxyUrl of proxyGenerators) {
-            try {
-              const pUrl = makeProxyUrl(rawUrl);
-              const proxyRes = await fetchWithTimeout(pUrl, {}, 4500);
-              if (proxyRes.ok) {
-                const text = await proxyRes.text();
-                data = JSON.parse(text);
-                if (data && data.ac) break;
-              }
-            } catch (proxyErr) {
-              lastError = proxyErr.name === "AbortError" ? "Timeout" : "Proxy blockiert";
+      // 1. Wenn wir in der APK sind -> direkter nativer Aufruf ohne Umwege
+      if (isNativeApp) {
+        for (const url of ["https://api.adsb.lol/v2/mil", "https://api.airplanes.live/v2/mil"]) {
+          try {
+            const data = await quickFetch(url, 4000);
+            if (data && data.ac) {
+              fleet = data.ac;
+              break;
             }
+          } catch (e) {
+            lastErr = e.message;
           }
         }
+      } else {
+        // 2. Im Web-Browser: Schneller direkter Test, danach corsproxy
+        const endpoints = [
+          "https://api.adsb.lol/v2/mil",
+          "https://corsproxy.io/?https://api.adsb.lol/v2/mil",
+          "https://api.airplanes.live/v2/mil"
+        ];
 
-        if (data && data.ac) break;
+        for (const url of endpoints) {
+          try {
+            const data = await quickFetch(url, 3000);
+            if (data && data.ac) {
+              fleet = data.ac;
+              break;
+            }
+          } catch (e) {
+            lastErr = "CORS/Timeout";
+          }
+        }
       }
 
       badge.classList.remove("scanning");
+      isFetching = false;
 
-      if (data && data.ac) {
-        processFlights(data.ac);
-        badge.innerText = `Online (${data.ac.length} Flieger)`;
+      if (fleet) {
+        processFlights(fleet);
+        badge.innerText = `Online (${fleet.length} Flieger)`;
       } else {
-        badge.innerText = `Fehler: ${lastError || "Keine Daten"}`;
+        badge.innerText = `Fehler: ${lastErr || "Offline"}`;
       }
     }
 
@@ -549,9 +505,6 @@
 
           const flightObj = {
             id: id,
-            hex: ac.hex,
-            lat: ac.lat,
-            lon: ac.lon,
             callsign: (ac.flight || ac.r || ac.hex || "UNKNOWN").trim(),
             type: type,
             info: info,
@@ -561,7 +514,9 @@
             sectorName: sectorLong,
             alt: ac.alt_geom || ac.alt_baro || 0,
             speed: ac.gs || 0,
-            track: ac.track || 0
+            track: ac.track || 0,
+            lat: ac.lat,
+            lon: ac.lon
           };
 
           if (!knownFlights.has(id)) {
@@ -646,12 +601,10 @@
 
     initMap();
     initPushNotifications();
-    registerBackgroundTask();
     initNativeGPS();
 
-    setTimeout(() => {
-      fetchMilitaryFlights();
-    }, 800);
+    // Erster Scan nach 500ms
+    setTimeout(fetchMilitaryFlights, 500);
   </script>
 </body>
 </html>

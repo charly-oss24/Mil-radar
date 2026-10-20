@@ -145,10 +145,6 @@
       font-size: 0.85rem;
       color: var(--text-bright);
     }
-    .bearing-target {
-      font-weight: bold;
-      color: var(--bearing);
-    }
     .flight-stats {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
@@ -180,31 +176,32 @@
   <header>
     <div>
       <h1>Mil-Air Alert</h1>
-      <div style="font-size: 0.7rem; color: #8b949e;">Radius: 50 km (Militär-Filter)</div>
+      <div style="font-size: 0.7rem; color: #8b949e;">Radius: 50 km (Dynamisches GPS)</div>
     </div>
-    <div id="statusBadge" class="status-badge">Standort wird ermittelt...</div>
+    <div id="statusBadge" class="status-badge">Initialisiere...</div>
   </header>
 
   <div id="map"></div>
 
   <div class="controls">
-    <button id="toggleAudioBtn" onclick="toggleAudio()">Audio-Alarm: AUS</button>
+    <button id="toggleAudioBtn" onclick="toggleAudio()">Audio-Alarm: AN</button>
     <button onclick="fetchMilitaryFlights()">Jetzt Scannen</button>
   </div>
 
   <div id="meta-bar">
-    <span id="posDisplay">Standort: Unbekannt</span>
+    <span id="posDisplay">Standort: Ermittle GPS...</span>
     <span id="countdown">Nächster Scan: 10s</span>
   </div>
 
   <div id="flightList">
-    <div class="empty-state">Scanne Luftraum im 50-km-Umkreis...</div>
+    <div class="empty-state">Warte auf Positionsbestimmung...</div>
   </div>
 
   <script>
     let userLat = 48.9500;
     let userLon = 8.5772;
-    let audioEnabled = false;
+    let gpsAcquired = false;
+    let audioEnabled = true;
     let knownFlights = new Set();
     let countdownSec = 10;
     const MAX_DISTANCE_KM = 50;
@@ -217,15 +214,15 @@
     const FIGHTER_JETS = ["EF20", "TOR", "F16", "F35", "FA18", "EUFI", "A10", "F15", "M2000", "RAF"];
     const HELICOPTERS = ["H145", "EC45", "TIGR", "NH90", "CH53", "H60", "AH64", "EC35", "AS32"];
 
-    const sectorLandmarks = {
-      "N": "Richtung Bretten / Bruchsal",
-      "NO": "Richtung Maulbronn / Heilbronn",
-      "O": "Richtung Mühlacker / Stuttgart",
-      "SO": "Richtung Pforzheim / Schwarzwald-Pforte",
-      "S": "Richtung Bad Wildbad / Nordschwarzwald",
-      "SW": "Richtung Freudenstadt / Baden-Baden",
-      "W": "Richtung Karlsbad / Karlsruhe",
-      "NW": "Richtung Stutensee / Philippsburg"
+    const compassText = {
+      "N": "Norden",
+      "NO": "Nordosten",
+      "O": "Osten",
+      "SO": "Südosten",
+      "S": "Süden",
+      "SW": "Südwesten",
+      "W": "Westen",
+      "NW": "Nordwesten"
     };
 
     async function initPushNotifications() {
@@ -245,7 +242,7 @@
             notifications: [
               {
                 title: `🚨 ${flight.info.label}: ${flight.callsign}`,
-                body: `${flight.dist.toFixed(1)} km entfernt | ${flight.sector} (${flight.landmark})`,
+                body: `${flight.dist.toFixed(1)} km entfernt | Richtung ${flight.sectorName} (${flight.bearing}°)`,
                 id: Math.floor(Math.random() * 100000),
                 schedule: { at: new Date(Date.now() + 100) },
                 sound: null
@@ -271,7 +268,7 @@
         iconSize: [14, 14],
         iconAnchor: [7, 7]
       });
-      userMarker = L.marker([userLat, userLon], { icon: homeIcon }).addTo(map).bindPopup("Dein Standort");
+      userMarker = L.marker([userLat, userLon], { icon: homeIcon }).addTo(map).bindPopup("Aktueller Standort");
 
       radiusCircle = L.circle([userLat, userLon], {
         color: '#1f6feb',
@@ -283,11 +280,56 @@
       }).addTo(map);
     }
 
-    function updateMapLocation() {
-      if (!map) return;
-      userMarker.setLatLng([userLat, userLon]);
-      radiusCircle.setLatLng([userLat, userLon]);
-      map.setView([userLat, userLon], 9);
+    function setLocation(lat, lon) {
+      userLat = lat;
+      userLon = lon;
+      gpsAcquired = true;
+      document.getElementById("posDisplay").innerText = `Standort: ${userLat.toFixed(3)}N, ${userLon.toFixed(3)}E`;
+      
+      if (userMarker && radiusCircle && map) {
+        userMarker.setLatLng([userLat, userLon]);
+        radiusCircle.setLatLng([userLat, userLon]);
+        map.panTo([userLat, userLon]);
+      }
+    }
+
+    async function initNativeGPS() {
+      try {
+        if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation) {
+          const perm = await window.Capacitor.Plugins.Geolocation.requestPermissions();
+          
+          const pos = await window.Capacitor.Plugins.Geolocation.getCurrentPosition({
+            enableHighAccuracy: true,
+            timeout: 10000
+          });
+          setLocation(pos.coords.latitude, pos.coords.longitude);
+
+          // Kontinuierliche Positionsaktualisierung bei Bewegung
+          window.Capacitor.Plugins.Geolocation.watchPosition(
+            { enableHighAccuracy: true },
+            (newPos) => {
+              if (newPos && newPos.coords) {
+                setLocation(newPos.coords.latitude, newPos.coords.longitude);
+              }
+            }
+          );
+          return;
+        }
+      } catch (err) {
+        console.warn("Natives GPS nicht bereit, nutze Web-API Fallback:", err);
+      }
+
+      // Web Fallback
+      if ("geolocation" in navigator) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => setLocation(pos.coords.latitude, pos.coords.longitude),
+          (err) => {
+            console.warn("GPS nicht verfügbar, Standardkoordinaten aktiv:", err);
+            document.getElementById("posDisplay").innerText = "Standort: Standard (Remchingen)";
+          },
+          { enableHighAccuracy: true, timeout: 8000 }
+        );
+      }
     }
 
     function classifyAircraft(type) {
@@ -318,7 +360,7 @@
         osc.start();
         osc.stop(audioCtx.currentTime + 0.35);
       } catch (e) {
-        console.error("Audio-Fehler:", e);
+        console.error("Audio:", e);
       }
     }
 
@@ -364,29 +406,6 @@
       return directions[index];
     }
 
-    function initGPS() {
-      if ("geolocation" in navigator) {
-        navigator.geolocation.getCurrentPosition(
-          (pos) => {
-            userLat = pos.coords.latitude;
-            userLon = pos.coords.longitude;
-            document.getElementById("posDisplay").innerText = `Standort: ${userLat.toFixed(3)}N, ${userLon.toFixed(3)}E`;
-            updateMapLocation();
-            fetchMilitaryFlights();
-          },
-          (err) => {
-            console.warn("GPS-Fallback auf Remchingen:", err);
-            document.getElementById("posDisplay").innerText = "Standort: Remchingen (Standard)";
-            fetchMilitaryFlights();
-          },
-          { enableHighAccuracy: true, timeout: 8000 }
-        );
-      } else {
-        document.getElementById("posDisplay").innerText = "Standort: Remchingen (Standard)";
-        fetchMilitaryFlights();
-      }
-    }
-
     async function fetchMilitaryFlights() {
       const badge = document.getElementById("statusBadge");
       badge.classList.add("scanning");
@@ -402,7 +421,7 @@
 
       for (const url of targetUrls) {
         try {
-          const res = await fetch(url);
+          const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
           if (res.ok) {
             data = await res.json();
             break;
@@ -410,7 +429,6 @@
             lastError = `Status ${res.status}`;
           }
         } catch (err) {
-          console.warn("Netzwerkfehler:", url, err);
           lastError = err.message || "Netzwerk";
         }
       }
@@ -471,7 +489,7 @@
         if (dist <= MAX_DISTANCE_KM) {
           const bearing = calculateBearing(userLat, userLon, ac.lat, ac.lon);
           const sector = getCompassSector(bearing);
-          const landmark = sectorLandmarks[sector] || "";
+          const sectorLong = compassText[sector] || sector;
           const id = ac.hex || ac.flight || `${ac.lat}-${ac.lon}`;
           const type = ac.t || "MIL";
           const info = classifyAircraft(type);
@@ -487,7 +505,7 @@
             dist: dist,
             bearing: Math.round(bearing),
             sector: sector,
-            landmark: landmark,
+            sectorName: sectorLong,
             alt: ac.alt_geom || ac.alt_baro || 0,
             speed: ac.gs || 0,
             track: ac.track || 0
@@ -549,7 +567,7 @@
               <span class="bearing-arrow" style="transform: rotate(${f.bearing}deg);">↑</span>
               <div class="bearing-text">
                 Blickrichtung: <strong>${f.sector} (${f.bearing}°)</strong><br>
-                <span class="bearing-target">👉 Schau ${f.landmark}</span>
+                <span>👉 Schau Richtung <strong>${f.sectorName}</strong></span>
               </div>
             </div>
 
@@ -573,9 +591,15 @@
       document.getElementById("countdown").innerText = `Nächster Scan: ${countdownSec}s`;
     }, 1000);
 
-    initPushNotifications();
+    // Kaltstart geordnet ausführen
     initMap();
-    initGPS();
+    initPushNotifications();
+    initNativeGPS();
+
+    // 800ms warten, damit Capacitor-Plugins und Netzwerk-Bridge stabil stehen
+    setTimeout(() => {
+      fetchMilitaryFlights();
+    }, 800);
   </script>
 </body>
 </html>

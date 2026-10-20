@@ -29,10 +29,10 @@ jobs:
       - name: App-Hülle & Plugins erstellen (Capacitor)
         run: |
           npm init -y
-          npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/local-notifications @capacitor/geolocation
+          npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/local-notifications @capacitor/geolocation @capawesome/capacitor-background-task
           npx cap init "Mil-Air Alert" "com.charly.milradar" --web-dir www
           
-          # Native HTTP-Bridge aktivieren
+          # Native HTTP-Bridge & Background-Handling aktivieren
           node -e '
             const fs = require("fs");
             const file = "capacitor.config.json";
@@ -48,10 +48,10 @@ jobs:
 
       - name: Berechtigungen & native Konfiguration eintragen
         run: |
-          # Vollständige Berechtigungen für GPS, WakeLock und Foreground Notifications
-          sed -i '/<application/i <uses-permission android:name="android.permission.INTERNET" />\n<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />\n<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n<uses-permission android:name="android.permission.VIBRATE" />\n<uses-permission android:name="android.permission.WAKE_LOCK" />\n<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />\n<uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />' android/app/src/main/AndroidManifest.xml
+          # Berechtigungen eintragen
+          sed -i '/<application/i <uses-permission android:name="android.permission.INTERNET" />\n<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />\n<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n<uses-permission android:name="android.permission.VIBRATE" />\n<uses-permission android:name="android.permission.WAKE_LOCK" />\n<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />\n<uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />\n<uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />\n<uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />' android/app/src/main/AndroidManifest.xml
           
-          # Netzwerk-Klartext erlauben
+          # CleartextTraffic erlauben
           sed -i 's/<application/<application android:usesCleartextTraffic="true"/' android/app/src/main/AndroidManifest.xml
 
           # Duplicate-Class-Fix für Kotlin/Gradle
@@ -70,4 +70,3 @@ jobs:
         with:
           name: Mil-Radar-App
           path: android/app/build/outputs/apk/debug/app-debug.apk
-          

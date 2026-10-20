@@ -434,17 +434,32 @@
       let data = null;
       let lastError = "";
 
-      for (const url of targetUrls) {
+      for (const rawUrl of targetUrls) {
+        const isNativeApp = window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform();
+
+        // 1. Direkter Aufruf (in der nativen APK über CapacitorHttp immer erfolgreich)
         try {
-          const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+          const res = await fetch(rawUrl, { headers: { 'Accept': 'application/json' } });
           if (res.ok) {
             data = await res.json();
             break;
-          } else {
-            lastError = `Status ${res.status}`;
           }
         } catch (err) {
           lastError = err.message || "Netzwerk";
+        }
+
+        // 2. Automatischer CORS-Proxy-Fallback (speziell für Browser / GitHub Pages)
+        if (!data && !isNativeApp) {
+          try {
+            const proxyUrl = "https://api.allorigins.win/raw?url=" + encodeURIComponent(rawUrl);
+            const proxyRes = await fetch(proxyUrl);
+            if (proxyRes.ok) {
+              data = await proxyRes.json();
+              break;
+            }
+          } catch (proxyErr) {
+            lastError = proxyErr.message || "CORS-Blockade";
+          }
         }
       }
 
@@ -611,7 +626,6 @@
     registerBackgroundTask();
     initNativeGPS();
 
-    // 800ms warten für saubere Bridge-Initialisierung
     setTimeout(() => {
       fetchMilitaryFlights();
     }, 800);

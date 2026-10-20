@@ -433,40 +433,52 @@
 
       const proxyGenerators = [
         (url) => "https://corsproxy.io/?" + encodeURIComponent(url),
-        (url) => "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(url),
-        (url) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(url)
+        (url) => "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(url)
       ];
 
       let data = null;
       let lastError = "";
 
-      const isNativeApp = window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform();
+      const isNativeApp = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+
+      async function fetchWithTimeout(url, options = {}, timeoutMs = 4000) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+          const res = await fetch(url, { ...options, signal: controller.signal });
+          clearTimeout(timer);
+          return res;
+        } catch (e) {
+          clearTimeout(timer);
+          throw e;
+        }
+      }
 
       for (const rawUrl of targetUrls) {
-        // 1. Direkter Abruf (funktioniert in der APK dank nativer Bridge direkt)
+        // 1. Direkter Abruf (nativ in der APK)
         try {
-          const res = await fetch(rawUrl);
+          const res = await fetchWithTimeout(rawUrl);
           if (res.ok) {
             data = await res.json();
-            break;
+            if (data && data.ac) break;
           }
         } catch (err) {
-          lastError = err.message || "Netzwerk";
+          lastError = err.name === "AbortError" ? "Timeout" : (err.message || "Netzwerk");
         }
 
-        // 2. Automatischer Proxy-Durchlauf (falls Browser CORS blockiert)
+        // 2. Proxy-Abruf mit Timeout (nur im Web-Browser)
         if (!data && !isNativeApp) {
           for (const makeProxyUrl of proxyGenerators) {
             try {
               const pUrl = makeProxyUrl(rawUrl);
-              const proxyRes = await fetch(pUrl);
+              const proxyRes = await fetchWithTimeout(pUrl, {}, 4500);
               if (proxyRes.ok) {
                 const text = await proxyRes.text();
                 data = JSON.parse(text);
-                break;
+                if (data && data.ac) break;
               }
             } catch (proxyErr) {
-              lastError = proxyErr.message || "Proxy-Fehler";
+              lastError = proxyErr.name === "AbortError" ? "Timeout" : "Proxy blockiert";
             }
           }
         }
@@ -474,13 +486,13 @@
         if (data && data.ac) break;
       }
 
+      badge.classList.remove("scanning");
+
       if (data && data.ac) {
         processFlights(data.ac);
-        badge.classList.remove("scanning");
         badge.innerText = `Online (${data.ac.length} Flieger)`;
       } else {
-        badge.classList.remove("scanning");
-        badge.innerText = `Fehler: ${lastError || "Offline"}`;
+        badge.innerText = `Fehler: ${lastError || "Keine Daten"}`;
       }
     }
 

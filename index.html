@@ -431,15 +431,21 @@
         "https://api.airplanes.live/v2/mil"
       ];
 
+      const proxyGenerators = [
+        (url) => "https://corsproxy.io/?" + encodeURIComponent(url),
+        (url) => "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(url),
+        (url) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(url)
+      ];
+
       let data = null;
       let lastError = "";
 
-      for (const rawUrl of targetUrls) {
-        const isNativeApp = window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform();
+      const isNativeApp = window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform();
 
-        // 1. Direkter Aufruf (in der nativen APK über CapacitorHttp immer erfolgreich)
+      for (const rawUrl of targetUrls) {
+        // 1. Direkter Abruf (funktioniert in der APK dank nativer Bridge direkt)
         try {
-          const res = await fetch(rawUrl, { headers: { 'Accept': 'application/json' } });
+          const res = await fetch(rawUrl);
           if (res.ok) {
             data = await res.json();
             break;
@@ -448,19 +454,24 @@
           lastError = err.message || "Netzwerk";
         }
 
-        // 2. Automatischer CORS-Proxy-Fallback (speziell für Browser / GitHub Pages)
+        // 2. Automatischer Proxy-Durchlauf (falls Browser CORS blockiert)
         if (!data && !isNativeApp) {
-          try {
-            const proxyUrl = "https://api.allorigins.win/raw?url=" + encodeURIComponent(rawUrl);
-            const proxyRes = await fetch(proxyUrl);
-            if (proxyRes.ok) {
-              data = await proxyRes.json();
-              break;
+          for (const makeProxyUrl of proxyGenerators) {
+            try {
+              const pUrl = makeProxyUrl(rawUrl);
+              const proxyRes = await fetch(pUrl);
+              if (proxyRes.ok) {
+                const text = await proxyRes.text();
+                data = JSON.parse(text);
+                break;
+              }
+            } catch (proxyErr) {
+              lastError = proxyErr.message || "Proxy-Fehler";
             }
-          } catch (proxyErr) {
-            lastError = proxyErr.message || "CORS-Blockade";
           }
         }
+
+        if (data && data.ac) break;
       }
 
       if (data && data.ac) {

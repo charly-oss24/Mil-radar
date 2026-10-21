@@ -190,7 +190,7 @@
   </div>
 
   <div id="meta-bar">
-    <span id="posDisplay">Standort: 48.950N, 8.582E</span>
+    <span id="posDisplay">Standort: Suche GPS...</span>
     <span id="countdown">Nächster Scan: 10s</span>
   </div>
 
@@ -199,8 +199,10 @@
   </div>
 
   <script>
+    // Standard-Fallback Koordinaten
     let userLat = 48.9500;
     let userLon = 8.5772;
+    let hasLiveGPS = false;
     let audioEnabled = true;
     let knownFlights = new Set();
     let countdownSec = 10;
@@ -263,7 +265,7 @@
         iconSize: [14, 14],
         iconAnchor: [7, 7]
       });
-      userMarker = L.marker([userLat, userLon], { icon: homeIcon }).addTo(map).bindPopup("Aktueller Standort");
+      userMarker = L.marker([userLat, userLon], { icon: homeIcon }).addTo(map).bindPopup("Standort");
 
       radiusCircle = L.circle([userLat, userLon], {
         color: '#1f6feb',
@@ -275,37 +277,66 @@
       }).addTo(map);
     }
 
-    function setLocation(lat, lon) {
+    function updateCoordinates(lat, lon, isLive = true) {
       userLat = lat;
       userLon = lon;
-      document.getElementById("posDisplay").innerText = `Standort: ${userLat.toFixed(3)}N, ${userLon.toFixed(3)}E`;
+      hasLiveGPS = isLive;
+      
+      const label = isLive ? "GPS Live" : "Standard";
+      document.getElementById("posDisplay").innerText = `Standort: ${userLat.toFixed(3)}N, ${userLon.toFixed(3)}E (${label})`;
+
       if (userMarker && radiusCircle && map) {
         userMarker.setLatLng([userLat, userLon]);
         radiusCircle.setLatLng([userLat, userLon]);
+        map.panTo([userLat, userLon]);
       }
     }
 
-    async function initNativeGPS() {
-      try {
-        if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation) {
-          await window.Capacitor.Plugins.Geolocation.requestPermissions();
-          const pos = await window.Capacitor.Plugins.Geolocation.getCurrentPosition({
+    // Robuste Standortermittlung: Sofort Cache holen + kontinuierlicher Watcher
+    async function startLocationTracking() {
+      // 1. Natives Capacitor Geolocation
+      if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation) {
+        const Geo = window.Capacitor.Plugins.Geolocation;
+        try {
+          await Geo.requestPermissions();
+          
+          // Sofortiger Schnell-Fix (auch aus dem Android-Cache)
+          const quick = await Geo.getCurrentPosition({
             enableHighAccuracy: true,
-            timeout: 5000
+            timeout: 10000,
+            maximumAge: 60000 // Bis zu 60s alter Cache erlaubt für Sofort-Start
           });
-          setLocation(pos.coords.latitude, pos.coords.longitude);
+          if (quick && quick.coords) {
+            updateCoordinates(quick.coords.latitude, quick.coords.longitude, true);
+          }
+
+          // Kontinuierlicher Watcher für Bewegungen (Ludwigsburg, etc.)
+          await Geo.watchPosition({ enableHighAccuracy: true }, (pos) => {
+            if (pos && pos.coords) {
+              updateCoordinates(pos.coords.latitude, pos.coords.longitude, true);
+            }
+          });
           return;
+        } catch (e) {
+          console.warn("Capacitor Geolocation Fehler:", e);
         }
-      } catch (err) {
-        console.warn("Natives GPS:", err);
       }
 
+      // 2. Standard Webview Geolocation Fallback
       if ("geolocation" in navigator) {
         navigator.geolocation.getCurrentPosition(
-          (pos) => setLocation(pos.coords.latitude, pos.coords.longitude),
-          () => console.log("Standardkoordinaten aktiv"),
-          { enableHighAccuracy: false, timeout: 3000 }
+          (pos) => updateCoordinates(pos.coords.latitude, pos.coords.longitude, true),
+          () => updateCoordinates(userLat, userLon, false),
+          { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
         );
+
+        navigator.geolocation.watchPosition(
+          (pos) => updateCoordinates(pos.coords.latitude, pos.coords.longitude, true),
+          (err) => console.warn("Watch-Fehler:", err),
+          { enableHighAccuracy: true, maximumAge: 30000 }
+        );
+      } else {
+        updateCoordinates(userLat, userLon, false);
       }
     }
 
@@ -377,8 +408,7 @@
       return directions[Math.round(degrees / 45) % 8];
     }
 
-    // Abruf mit absolutem Timeout (3 Sekunden)
-    async function quickFetch(url, timeoutMs = 3000) {
+    async function quickFetch(url, timeoutMs = 4000) {
       const c = new AbortController();
       const id = setTimeout(() => c.abort(), timeoutMs);
       try {
@@ -406,7 +436,6 @@
       let lastErr = "";
 
       if (isNativeApp) {
-        // Nativ in der APK: Läuft unzensiert über System-Sockets ohne CORS-Einschränkungen
         for (const url of ["https://api.adsb.lol/v2/mil", "https://api.airplanes.live/v2/mil"]) {
           try {
             const data = await quickFetch(url, 4000);
@@ -419,12 +448,10 @@
           }
         }
       } else {
-        // Reiner Web-Browser-Pfad für charly-oss24.github.io
         const browserEndpoints = [
           "https://proxy.cors.sh/https://api.adsb.lol/v2/mil",
           "https://api.codetabs.com/v1/proxy?quest=https://api.adsb.lol/v2/mil"
         ];
-
         for (const url of browserEndpoints) {
           try {
             const data = await quickFetch(url, 3500);
@@ -598,9 +625,9 @@
 
     initMap();
     initPushNotifications();
-    initNativeGPS();
+    startLocationTracking();
 
-    setTimeout(fetchMilitaryFlights, 500);
+    setTimeout(fetchMilitaryFlights, 600);
   </script>
 </body>
 </html>
